@@ -101,7 +101,7 @@ def twilio_process():
     try:
         # Send to AI agent
         ask_response = requests.post(
-            "https://your-render-app.onrender.com/ask",  # 👈 replace with your live URL
+            "https://render-vps-ypjh.onrender.com/ask",  # 👈 replace with your live URL
             json={"prompt": user_input}
         )
         ask_data = ask_response.json()
@@ -110,7 +110,7 @@ def twilio_process():
         if not audio_url:
             raise Exception("No audio_url in AI response")
 
-        full_audio_url = f"https://your-render-app.onrender.com{audio_url}"  # 👈 replace
+        full_audio_url = f"https://render-vps-ypjh.onrender.com{audio_url}"  # 👈 replace
 
         # Return TwiML to play audio
         twiml = VoiceResponse()
