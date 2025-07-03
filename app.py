@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from openai import OpenAI
 import requests
 import os
+import uuid
 
 app = Flask(__name__)
 
@@ -14,19 +15,19 @@ client = OpenAI(api_key=openai_api_key)
 
 @app.route("/")
 def home():
-    return "AI Voice Agent is running."
+    return "✅ AI Voice Agent is running."
 
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
         user_input = request.json.get("prompt")
+        if not user_input:
+            return jsonify({"error": "Missing 'prompt' in request"}), 400
 
         # GPT Completion
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": user_input}
-            ]
+            messages=[{"role": "user", "content": user_input}]
         )
         gpt_text = response.choices[0].message.content
 
@@ -43,21 +44,30 @@ def ask():
             }
         }
 
+        # Generate unique filename
+        filename = f"response_{uuid.uuid4().hex}.mp3"
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         voice_response = requests.post(tts_url, json=payload, headers=headers)
 
-        # Save as a file
-        with open("response.mp3", "wb") as f:
+        if voice_response.status_code != 200:
+            return jsonify({"error": "TTS failed", "details": voice_response.text}), 500
+
+        with open(filename, "wb") as f:
             f.write(voice_response.content)
 
         return jsonify({
             "reply": gpt_text,
-            "audio_url": "response.mp3"
+            "audio_url": f"/audio/{filename}"
         })
 
     except Exception as e:
         print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
+
+# Serve audio file
+@app.route("/audio/<filename>")
+def serve_audio(filename):
+    return send_file(filename, mimetype="audio/mpeg")
 
 # ✅ Required for Render
 if __name__ == "__main__":
