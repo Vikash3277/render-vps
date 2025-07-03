@@ -3,6 +3,7 @@ from openai import OpenAI
 import requests
 import os
 import uuid
+from twilio.twiml.voice_response import VoiceResponse, Gather
 
 app = Flask(__name__)
 
@@ -17,6 +18,7 @@ client = OpenAI(api_key=openai_api_key)
 def home():
     return "✅ AI Voice Agent is running."
 
+# === AI Core Endpoint ===
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
@@ -64,10 +66,62 @@ def ask():
         print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
-# Serve audio file
+# === Serve MP3 files ===
 @app.route("/audio/<filename>")
 def serve_audio(filename):
     return send_file(filename, mimetype="audio/mpeg")
+
+# === Twilio Voice Webhook ===
+@app.route("/twilio-voice", methods=["POST"])
+def twilio_voice():
+    """Initial webhook that Twilio hits when the call starts."""
+    response = VoiceResponse()
+    gather = Gather(
+        input="speech",
+        action="/twilio-process",
+        method="POST",
+        timeout=5,
+        speechTimeout="auto"
+    )
+    gather.say("Hello. How can I help you today?")
+    response.append(gather)
+    response.say("We did not receive any input. Goodbye.")
+    return str(response)
+
+# === Twilio Speech Result Handler ===
+@app.route("/twilio-process", methods=["POST"])
+def twilio_process():
+    """Handles speech input from Twilio and returns AI voice response."""
+    user_input = request.form.get("SpeechResult", "")
+    if not user_input:
+        resp = VoiceResponse()
+        resp.say("Sorry, I did not catch that.")
+        return str(resp)
+
+    try:
+        # Send to AI agent
+        ask_response = requests.post(
+            "https://your-render-app.onrender.com/ask",  # 👈 replace with your live URL
+            json={"prompt": user_input}
+        )
+        ask_data = ask_response.json()
+        audio_url = ask_data.get("audio_url")
+
+        if not audio_url:
+            raise Exception("No audio_url in AI response")
+
+        full_audio_url = f"https://your-render-app.onrender.com{audio_url}"  # 👈 replace
+
+        # Return TwiML to play audio
+        twiml = VoiceResponse()
+        twiml.play(full_audio_url)
+        return str(twiml)
+
+    except Exception as e:
+        print("❌ Twilio Process Error:", e)
+        resp = VoiceResponse()
+        resp.say("Something went wrong. Goodbye.")
+        return str(resp)
 
 # ✅ Required for Render
 if __name__ == "__main__":
