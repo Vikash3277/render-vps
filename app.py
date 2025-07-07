@@ -78,17 +78,18 @@ def twilio_voice_entry():
 
     print(f"📞 VICIdial is calling {to_number}")
 
-    # Tell Twilio to call the real customer
+    caller_id = "+447446960231"  # ✅ Use your verified Twilio number here
+
     response = VoiceResponse()
-    response.dial(to_number, action="/customer-answered", answer_on_bridge=True)
+    response.dial(to=to_number, caller_id=caller_id, action="/customer-answered", answer_on_bridge=True)
     return Response(str(response), mimetype="application/xml")
+
 
 
 # === 2. When customer picks up, call AI SIP agent
 @app.route("/customer-answered", methods=["POST"])
 def customer_answered():
     response = VoiceResponse()
-    dial = response.dial(caller_id="+447446960231")
     response.dial().sip("sip:immaculateaiagent@sip.twilio.com")  # 👈 Your AI SIP user
     return Response(str(response), mimetype="application/xml")
 
