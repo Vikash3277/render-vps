@@ -7,19 +7,19 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 
 app = Flask(__name__)
 
-# ✅ Environment Variables (set these in Render)
+# ✅ Environment Variables (set in Render)
 openai_api_key = os.environ.get("OPENAI_API_KEY")
 elevenlabs_api_key = os.environ.get("ELEVENLABS_API_KEY")
 voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
 
 client = OpenAI(api_key=openai_api_key)
 
-# === Home Route ===
+# === Home ===
 @app.route("/")
 def home():
     return "✅ AI Voice Agent is running."
 
-# === AI Core ===
+# === AI Core Endpoint ===
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
@@ -66,19 +66,17 @@ def ask():
         print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
-# === Serve MP3 Files ===
+# === Serve MP3s ===
 @app.route("/audio/<filename>")
 def serve_audio(filename):
     return send_file(filename, mimetype="audio/mpeg")
 
-# === Twilio SIP Webhook (Initial call from VICIdial) ===
-@app.route("/twilio-voice", methods=["POST"])
+# === Step 1: VICIdial → SIP INVITE → Twilio hits here ===
+@app.route("/twilio-sip", methods=["POST"])
 def handle_incoming_sip():
-    """Twilio receives SIP INVITE from VICIdial. Extract number and dial customer."""
     to_number = request.values.get("To", "")
-    print("📞 Call Request To:", to_number)
+    print("📞 Incoming SIP call to:", to_number)
 
-    # Clean number if SIP URI style
     if "@" in to_number:
         to_number = to_number.split("@")[0].replace("sip:", "")
 
@@ -90,18 +88,16 @@ def handle_incoming_sip():
     )
     return Response(str(response), mimetype="application/xml")
 
-# === After Customer Answers ===
+# === Step 2: Customer Answers, now connect to AI SIP ===
 @app.route("/customer-answered", methods=["POST"])
 def customer_answered():
-    """Connect AI agent via SIP after customer answers."""
     response = VoiceResponse()
-    response.dial().sip("sip:sip:immaculateaiagent@sip.twilio.com")  # 🔁 Replace with your SIP
+    response.dial().sip("sip:immaculateaiagent@sip.twilio.com")  # ✅ Corrected
     return Response(str(response), mimetype="application/xml")
 
-# === Optional Twilio Agent Talk ===
-@app.route("/twilio-voice", methods=["POST"])
-def twilio_voice():
-    """Twilio → AI greeting (used only in `/twilio-process`)"""
+# === Step 3: AI SIP URI is called → this is the greeting ===
+@app.route("/ai-greet", methods=["POST"])
+def ai_greeting():
     response = VoiceResponse()
     gather = Gather(
         input="speech",
@@ -115,7 +111,7 @@ def twilio_voice():
     response.say("We did not receive any input. Goodbye.")
     return str(response)
 
-# === Process Speech and Respond with AI Audio ===
+# === Step 4: Handle speech input ===
 @app.route("/twilio-process", methods=["POST"])
 def twilio_process():
     user_input = request.form.get("SpeechResult", "")
@@ -126,7 +122,7 @@ def twilio_process():
 
     try:
         ask_response = requests.post(
-            "https://render-vps-ypjh.onrender.com/ask",  # 🔁 Replace if needed
+            "https://render-vps-ypjh.onrender.com/ask",
             json={"prompt": user_input}
         )
         ask_data = ask_response.json()
@@ -146,7 +142,7 @@ def twilio_process():
         resp.say("Something went wrong. Goodbye.")
         return str(resp)
 
-# ✅ For Render.com Deployment
+# === Run App ===
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
