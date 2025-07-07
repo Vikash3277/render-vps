@@ -98,20 +98,19 @@ def customer_answered():
 
         response = VoiceResponse()
 
-        if audio_url:
-            response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
-        else:
-            response.say("Hi! How can I help you?")
-
-        # Gather speech from customer
+        # 🛠️ Gather must wrap the playback
         gather = response.gather(
             input="speech",
             action="/twilio-process",
             method="POST",
-            timeout=5,
+            timeout=10,
             speech_timeout="auto"
         )
-        gather.say("I'm listening.")
+
+        if audio_url:
+            gather.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
+        else:
+            gather.say("Hi! How can I help you?")
 
         return Response(str(response), mimetype="application/xml")
 
