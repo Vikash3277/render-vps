@@ -7,7 +7,7 @@ from twilio.twiml.voice_response import VoiceResponse
 
 app = Flask(__name__)
 
-# ✅ ENV Variables on Render
+# ✅ ENV Variables
 openai_api_key = os.environ.get("OPENAI_API_KEY")
 elevenlabs_api_key = os.environ.get("ELEVENLABS_API_KEY")
 voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
@@ -20,7 +20,7 @@ def home():
     return "✅ AI Voice Agent is running."
 
 
-# === AI Core ===
+# === AI Chat + TTS ===
 @app.route("/ask", methods=["POST"])
 def ask():
     try:
@@ -28,7 +28,7 @@ def ask():
         if not prompt:
             return jsonify({"error": "Missing prompt"}), 400
 
-        # ChatGPT
+        # GPT-3.5 Chat
         chat_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
@@ -69,7 +69,7 @@ def serve_audio(filename):
     return send_file(filename, mimetype="audio/mpeg")
 
 
-# === 1. Twilio receives SIP call from VICIdial
+# === 1. VICIdial → Twilio SIP call →
 @app.route("/twilio-voice", methods=["POST"])
 def twilio_voice_entry():
     to_number = request.values.get("To", "")
@@ -85,41 +85,83 @@ def twilio_voice_entry():
     return Response(str(response), mimetype="application/xml")
 
 
-
-# === 2. When customer picks up, call AI SIP agent
+# === 2. When customer answers → AI greets and listens
 @app.route("/customer-answered", methods=["POST"])
 def customer_answered():
-    response = VoiceResponse()
-    response.dial().sip("sip:immaculateaiagent@sip.twilio.com")  # 👈 Your AI SIP user
-    return Response(str(response), mimetype="application/xml")
+    try:
+        prompt = "Hello! This is your AI assistant. How can I help you today?"
+
+        # Call GPT + ElevenLabs
+        r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": prompt})
+        reply = r.json()
+        audio_url = reply.get("audio_url")
+
+        response = VoiceResponse()
+
+        if audio_url:
+            response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
+        else:
+            response.say("Hi! How can I help you?")
+
+        # Gather speech from customer
+        gather = response.gather(
+            input="speech",
+            action="/twilio-process",
+            method="POST",
+            timeout=5,
+            speech_timeout="auto"
+        )
+        gather.say("I'm listening.")
+
+        return Response(str(response), mimetype="application/xml")
+
+    except Exception as e:
+        print("Error in /customer-answered:", e)
+        response = VoiceResponse()
+        response.say("Something went wrong.")
+        return Response(str(response), mimetype="application/xml")
 
 
-# === 3. Optional (when AI listens for customer speech input)
+# === 3. Handle customer's speech and loop back
 @app.route("/twilio-process", methods=["POST"])
 def twilio_process():
     speech_input = request.form.get("SpeechResult", "")
-    
+    print(f"🗣️ Customer said: {speech_input}")
+
+    response = VoiceResponse()
+
     if not speech_input:
-        r = VoiceResponse()
-        r.say("Sorry, I did not catch that.")
-        return Response(str(r), mimetype="application/xml")
+        response.say("Sorry, I didn't catch that.")
+        response.redirect("/customer-answered")
+        return Response(str(response), mimetype="application/xml")
 
     try:
+        # Send to GPT + ElevenLabs
         r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": speech_input})
         reply = r.json()
         audio_url = reply.get("audio_url")
-        if not audio_url:
-            raise Exception("No audio_url in response")
 
-        response = VoiceResponse()
-        response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
+        if audio_url:
+            response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
+        else:
+            response.say("I don't have a response right now.")
+
+        # Gather again (loop)
+        gather = response.gather(
+            input="speech",
+            action="/twilio-process",
+            method="POST",
+            timeout=5,
+            speech_timeout="auto"
+        )
+        gather.say("Go ahead, I'm listening.")
+
         return Response(str(response), mimetype="application/xml")
 
     except Exception as e:
         print("Error in /twilio-process:", e)
-        r = VoiceResponse()
-        r.say("Something went wrong.")
-        return Response(str(r), mimetype="application/xml")
+        response.say("Something went wrong.")
+        return Response(str(response), mimetype="application/xml")
 
 
 # === Run App ===
