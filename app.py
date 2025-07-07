@@ -98,10 +98,11 @@ def customer_answered():
 @app.route("/twilio-process", methods=["POST"])
 def twilio_process():
     speech_input = request.form.get("SpeechResult", "")
+    
     if not speech_input:
         r = VoiceResponse()
         r.say("Sorry, I did not catch that.")
-        return str(r)
+        return Response(str(r), mimetype="application/xml")
 
     try:
         r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": speech_input})
@@ -112,13 +113,13 @@ def twilio_process():
 
         response = VoiceResponse()
         response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
-        return str(response)
+        return Response(str(response), mimetype="application/xml")
 
     except Exception as e:
         print("Error in /twilio-process:", e)
         r = VoiceResponse()
         r.say("Something went wrong.")
-        return str(r)
+        return Response(str(r), mimetype="application/xml")
 
 
 # === Run App ===
