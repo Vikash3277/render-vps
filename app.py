@@ -78,7 +78,7 @@ def twilio_voice_entry():
 
     print(f"📞 VICIdial is calling {to_number}")
 
-    caller_id = "+447446960231"  # ✅ Use your verified Twilio number here
+    caller_id = "447446960231"  # ✅ Use your verified Twilio number here
 
     response = VoiceResponse()
     response.dial(to=to_number, caller_id=caller_id, action="/customer-answered", answer_on_bridge=True)
