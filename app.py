@@ -72,7 +72,7 @@ def serve_audio(filename):
 @app.route("/twilio-voice", methods=["POST"])
 def twilio_voice_entry():
     try:
-        prompt = "Hello! This is your AI assistant. How can I help you today?"
+        prompt = "Hello! This call is regarding pcp claims do you know about pcp claims?"
 
         # Call GPT + ElevenLabs
         r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": prompt})
