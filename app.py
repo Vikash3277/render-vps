@@ -70,18 +70,18 @@ def serve_audio(filename):
 
 
 # === 1. Twilio receives SIP call from VICIdial
-@app.route("/twilio-voice", methods=["POST"])
+@@app.route("/twilio-voice", methods=["POST"])
 def twilio_voice_entry():
     to_number = request.values.get("To", "")
     if "@" in to_number:
         to_number = to_number.split("@")[0].replace("sip:", "")
 
     print(f"📞 VICIdial is calling {to_number}")
-
-    caller_id = "+447446960231"  # ✅ Use your verified Twilio number here
+    caller_id = "+447446960231"
 
     response = VoiceResponse()
-    response.dial(to=to_number, caller_id=caller_id, action="/customer-answered", answer_on_bridge=True)
+    dial = response.dial(caller_id=caller_id, action="/customer-answered", answer_on_bridge=True)
+    dial.number(to_number)
     return Response(str(response), mimetype="application/xml")
 
 
