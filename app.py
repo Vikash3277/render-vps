@@ -86,7 +86,7 @@ def twilio_voice_entry():
             input="speech",
             action="/twilio-process",
             method="POST",
-            timeout=10,
+            timeout=2,
             speech_timeout="auto"
         )
 
