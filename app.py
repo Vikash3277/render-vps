@@ -14,7 +14,6 @@ voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
 
 client = OpenAI(api_key=openai_api_key)
 
-
 @app.route("/")
 def home():
     return "✅ AI Voice Agent is running."
@@ -69,25 +68,9 @@ def serve_audio(filename):
     return send_file(filename, mimetype="audio/mpeg")
 
 
-# === 1. VICIdial → Twilio SIP call →
+# === 1. When Twilio receives SIP call (VICIdial → Twilio → Flask)
 @app.route("/twilio-voice", methods=["POST"])
 def twilio_voice_entry():
-    to_number = request.values.get("To", "")
-    if "@" in to_number:
-        to_number = to_number.split("@")[0].replace("sip:", "")
-
-    print(f"📞 VICIdial is calling {to_number}")
-    caller_id = "+447446960231"
-
-    response = VoiceResponse()
-    dial = response.dial(caller_id=caller_id, action="/customer-answered", answer_on_bridge=True)
-    dial.number(to_number)
-    return Response(str(response), mimetype="application/xml")
-
-
-# === 2. When customer answers → AI greets and listens
-@app.route("/customer-answered", methods=["POST"])
-def customer_answered():
     try:
         prompt = "Hello! This is your AI assistant. How can I help you today?"
 
@@ -98,7 +81,7 @@ def customer_answered():
 
         response = VoiceResponse()
 
-        # 🛠️ Gather must wrap the playback
+        # 🎧 Gather to listen for customer speech
         gather = response.gather(
             input="speech",
             action="/twilio-process",
@@ -115,13 +98,13 @@ def customer_answered():
         return Response(str(response), mimetype="application/xml")
 
     except Exception as e:
-        print("Error in /customer-answered:", e)
+        print("❌ Error in /twilio-voice:", e)
         response = VoiceResponse()
         response.say("Something went wrong.")
         return Response(str(response), mimetype="application/xml")
 
 
-# === 3. Handle customer's speech and loop back
+# === 2. Handle customer's speech and loop back
 @app.route("/twilio-process", methods=["POST"])
 def twilio_process():
     speech_input = request.form.get("SpeechResult", "")
@@ -131,7 +114,7 @@ def twilio_process():
 
     if not speech_input:
         response.say("Sorry, I didn't catch that.")
-        response.redirect("/customer-answered")
+        response.redirect("/twilio-voice")
         return Response(str(response), mimetype="application/xml")
 
     try:
@@ -158,7 +141,7 @@ def twilio_process():
         return Response(str(response), mimetype="application/xml")
 
     except Exception as e:
-        print("Error in /twilio-process:", e)
+        print("❌ Error in /twilio-process:", e)
         response.say("Something went wrong.")
         return Response(str(response), mimetype="application/xml")
 
