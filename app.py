@@ -70,7 +70,7 @@ def serve_audio(filename):
 
 
 # === 1. Twilio receives SIP call from VICIdial
-@@app.route("/twilio-voice", methods=["POST"])
+@app.route("/twilio-voice", methods=["POST"])
 def twilio_voice_entry():
     to_number = request.values.get("To", "")
     if "@" in to_number:
