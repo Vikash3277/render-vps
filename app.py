@@ -90,7 +90,7 @@ def twilio_voice_entry():
 @app.route("/customer-answered", methods=["POST"])
 def customer_answered():
     response = VoiceResponse()
-    response.dial().sip("sip:aiagent@immaculateaiagent.sip.twilio.com")  # 👈 Your AI SIP user
+    response.dial().sip("sip:immaculateaiagent@sip.twilio.com")  # 👈 Your AI SIP user
     return Response(str(response), mimetype="application/xml")
 
 
