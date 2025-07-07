@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify, send_file
 from openai import OpenAI
 import requests
 import os
@@ -7,14 +7,13 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 
 app = Flask(__name__)
 
-# ✅ Environment Variables (set in Render)
+# ✅ Use Render Environment Variables
 openai_api_key = os.environ.get("OPENAI_API_KEY")
 elevenlabs_api_key = os.environ.get("ELEVENLABS_API_KEY")
 voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
 
 client = OpenAI(api_key=openai_api_key)
 
-# === Home ===
 @app.route("/")
 def home():
     return "✅ AI Voice Agent is running."
@@ -27,7 +26,7 @@ def ask():
         if not user_input:
             return jsonify({"error": "Missing 'prompt' in request"}), 400
 
-        # GPT Response
+        # GPT Completion
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": user_input}]
@@ -47,6 +46,7 @@ def ask():
             }
         }
 
+        # Generate unique filename
         filename = f"response_{uuid.uuid4().hex}.mp3"
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         voice_response = requests.post(tts_url, json=payload, headers=headers)
@@ -66,38 +66,15 @@ def ask():
         print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
-# === Serve MP3s ===
+# === Serve MP3 files ===
 @app.route("/audio/<filename>")
 def serve_audio(filename):
     return send_file(filename, mimetype="audio/mpeg")
 
-# === Step 1: VICIdial → SIP INVITE → Twilio hits here ===
-@app.route("/twilio-sip", methods=["POST"])
-def handle_incoming_sip():
-    to_number = request.values.get("To", "")
-    print("📞 Incoming SIP call to:", to_number)
-
-    if "@" in to_number:
-        to_number = to_number.split("@")[0].replace("sip:", "")
-
-    response = VoiceResponse()
-    response.dial(
-        to_number,
-        action="/customer-answered",
-        answer_on_bridge=True
-    )
-    return Response(str(response), mimetype="application/xml")
-
-# === Step 2: Customer Answers, now connect to AI SIP ===
-@app.route("/customer-answered", methods=["POST"])
-def customer_answered():
-    response = VoiceResponse()
-    response.dial().sip("sip:immaculateaiagent@sip.twilio.com")  # ✅ Corrected
-    return Response(str(response), mimetype="application/xml")
-
-# === Step 3: AI SIP URI is called → this is the greeting ===
-@app.route("/ai-greet", methods=["POST"])
-def ai_greeting():
+# === Twilio Voice Webhook ===
+@app.route("/twilio-voice", methods=["POST"])
+def twilio_voice():
+    """Initial webhook that Twilio hits when the call starts."""
     response = VoiceResponse()
     gather = Gather(
         input="speech",
@@ -111,9 +88,10 @@ def ai_greeting():
     response.say("We did not receive any input. Goodbye.")
     return str(response)
 
-# === Step 4: Handle speech input ===
+# === Twilio Speech Result Handler ===
 @app.route("/twilio-process", methods=["POST"])
 def twilio_process():
+    """Handles speech input from Twilio and returns AI voice response."""
     user_input = request.form.get("SpeechResult", "")
     if not user_input:
         resp = VoiceResponse()
@@ -121,8 +99,9 @@ def twilio_process():
         return str(resp)
 
     try:
+        # Send to AI agent
         ask_response = requests.post(
-            "https://render-vps-ypjh.onrender.com/ask",
+            "https://render-vps-ypjh.onrender.com/ask",  # 👈 replace with your live URL
             json={"prompt": user_input}
         )
         ask_data = ask_response.json()
@@ -131,7 +110,9 @@ def twilio_process():
         if not audio_url:
             raise Exception("No audio_url in AI response")
 
-        full_audio_url = f"https://render-vps-ypjh.onrender.com{audio_url}"
+        full_audio_url = f"https://render-vps-ypjh.onrender.com{audio_url}"  # 👈 replace
+
+        # Return TwiML to play audio
         twiml = VoiceResponse()
         twiml.play(full_audio_url)
         return str(twiml)
@@ -142,7 +123,7 @@ def twilio_process():
         resp.say("Something went wrong. Goodbye.")
         return str(resp)
 
-# === Run App ===
+# ✅ Required for Render
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
