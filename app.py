@@ -25,7 +25,7 @@ def start_call():
     to_number = request.values.get("To", "")
     print(f"📞 Raw number from Twilio: {to_number}")
 
-    # Extract number from SIP URI
+    # Extract number from SIP URI (e.g., sip:+919876543210@sip.yourdomain.com)
     if "@" in to_number:
         number = to_number.split("@")[0].replace("sip:", "")
     else:
@@ -45,7 +45,7 @@ def start_call():
         caller_id=twilio_number,
         answer_on_bridge=True
     )
-    # ✅ When customer answers, invoke WebSocket AI
+    # When customer answers, Twilio calls /connect-ai to start WebSocket media stream
     dial.number(number, url="/connect-ai")
     response.append(dial)
 
@@ -54,27 +54,18 @@ def start_call():
 # === After Customer Answers: Start Media Stream to AI Agent ===
 @app.route("/connect-ai", methods=["POST"])
 def connect_ai():
-    print("✅ Customer answered. Connecting to AI WebSocket (2-way audio)")
+    print("✅ Customer answered. Connecting to AI WebSocket")
 
     response = VoiceResponse()
     connect = Connect()
     
-    # Inbound audio from customer to AI
-    connect.stream(
-        url=stream_url,
-        track="inbound_track"
-    )
-    
-    # Outbound audio from AI to customer
-    connect.stream(
-        url=stream_url,
-        track="outbound_track"
-    )
+    # ✅ Only one <Stream> tag is valid
+    connect.stream(url=stream_url)
 
     response.append(connect)
 
     return Response(str(response), mimetype="application/xml")
 
-# === Run App ===
+# === Run Flask App ===
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
