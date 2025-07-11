@@ -54,14 +54,23 @@ def start_call():
 # === After Customer Answers: Start Media Stream to AI Agent ===
 @app.route("/connect-ai", methods=["POST"])
 def connect_ai():
-    print("✅ Customer answered. Connecting to AI WebSocket.")
+    print("✅ Customer answered. Connecting to AI WebSocket (2-way audio)")
 
     response = VoiceResponse()
     connect = Connect()
+    
+    # Inbound audio from customer to AI
     connect.stream(
         url=stream_url,
-        track="both_tracks"
+        track="inbound_track"
     )
+    
+    # Outbound audio from AI to customer
+    connect.stream(
+        url=stream_url,
+        track="outbound_track"
+    )
+
     response.append(connect)
 
     return Response(str(response), mimetype="application/xml")
