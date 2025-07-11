@@ -1,152 +1,71 @@
-from flask import Flask, request, jsonify, send_file, Response
-from openai import OpenAI
-import requests
+from flask import Flask, request, Response
+from twilio.twiml.voice_response import VoiceResponse, Dial, Connect, Stream
+import re
 import os
-import uuid
-from twilio.twiml.voice_response import VoiceResponse
 
 app = Flask(__name__)
 
-# ✅ ENV Variables
-openai_api_key = os.environ.get("OPENAI_API_KEY")
-elevenlabs_api_key = os.environ.get("ELEVENLABS_API_KEY")
-voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
+# === ENV Variables ===
+twilio_number = os.environ.get("TWILIO_NUMBER")  # e.g. +14155551234
+stream_url = os.environ.get("WS_STREAM_URL")     # e.g. wss://yourdomain.com/media
 
-client = OpenAI(api_key=openai_api_key)
+# === Helper: Validate Indian & US Numbers ===
+def sanitize_number(number):
+    match = re.match(r"^\+(1|91)\d{10}$", number)
+    return number if match else None
 
+# === Health Check ===
 @app.route("/")
-def home():
-    return "✅ AI Voice Agent is running."
+def health():
+    return "✅ Flask app running."
 
+# === Start Call from VICIdial (via Twilio SIP) ===
+@app.route("/start-call", methods=["POST"])
+def start_call():
+    to_number = request.values.get("To", "")
+    print(f"📞 Raw number from Twilio: {to_number}")
 
-# === AI Chat + TTS ===
-@app.route("/ask", methods=["POST"])
-def ask():
-    try:
-        prompt = request.json.get("prompt")
-        if not prompt:
-            return jsonify({"error": "Missing prompt"}), 400
+    # Extract number from SIP URI
+    if "@" in to_number:
+        number = to_number.split("@")[0].replace("sip:", "")
+    else:
+        number = to_number
 
-        # GPT-3.5 Chat
-        chat_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        gpt_output = chat_response.choices[0].message.content
-
-        # ElevenLabs TTS
-        headers = {
-            "xi-api-key": elevenlabs_api_key,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": gpt_output,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-
-        filename = f"response_{uuid.uuid4().hex}.mp3"
-        tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        tts_response = requests.post(tts_url, json=payload, headers=headers)
-
-        if tts_response.status_code != 200:
-            return jsonify({"error": "TTS failed", "details": tts_response.text}), 500
-
-        with open(filename, "wb") as f:
-            f.write(tts_response.content)
-
-        return jsonify({
-            "reply": gpt_output,
-            "audio_url": f"/audio/{filename}"
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/audio/<filename>")
-def serve_audio(filename):
-    return send_file(filename, mimetype="audio/mpeg")
-
-
-# === 1. When Twilio receives SIP call (VICIdial → Twilio → Flask)
-@app.route("/twilio-voice", methods=["POST"])
-def twilio_voice_entry():
-    try:
-        prompt = "Hello! This call is regarding pcp claims do you know about pcp claims?"
-
-        # Call GPT + ElevenLabs
-        r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": prompt})
-        reply = r.json()
-        audio_url = reply.get("audio_url")
-
+    number = sanitize_number(number)
+    if not number:
+        print("❌ Invalid phone number format.")
         response = VoiceResponse()
-
-        # 🎧 Gather to listen for customer speech
-        gather = response.gather(
-            input="speech",
-            action="/twilio-process",
-            method="POST",
-            timeout=2,
-            speech_timeout="auto"
-        )
-
-        if audio_url:
-            gather.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
-        else:
-            gather.say("Hi! How can I help you?")
-
+        response.say("Invalid number. Goodbye.")
         return Response(str(response), mimetype="application/xml")
 
-    except Exception as e:
-        print("❌ Error in /twilio-voice:", e)
-        response = VoiceResponse()
-        response.say("Something went wrong.")
-        return Response(str(response), mimetype="application/xml")
-
-
-# === 2. Handle customer's speech and loop back
-@app.route("/twilio-process", methods=["POST"])
-def twilio_process():
-    speech_input = request.form.get("SpeechResult", "")
-    print(f"🗣️ Customer said: {speech_input}")
+    print(f"✅ Dialing number: {number}")
 
     response = VoiceResponse()
+    dial = Dial(
+        caller_id=twilio_number,
+        answer_on_bridge=True
+    )
+    # ✅ When customer answers, invoke WebSocket AI
+    dial.number(number, url="/connect-ai")
+    response.append(dial)
 
-    if not speech_input:
-        response.say("Sorry, I didn't catch that.")
-        response.redirect("/twilio-voice")
-        return Response(str(response), mimetype="application/xml")
+    return Response(str(response), mimetype="application/xml")
 
-    try:
-        # Send to GPT + ElevenLabs
-        r = requests.post("https://render-vps-ypjh.onrender.com/ask", json={"prompt": speech_input})
-        reply = r.json()
-        audio_url = reply.get("audio_url")
+# === After Customer Answers: Start Media Stream to AI Agent ===
+@app.route("/connect-ai", methods=["POST"])
+def connect_ai():
+    print("✅ Customer answered. Connecting to AI WebSocket.")
 
-        if audio_url:
-            response.play(f"https://render-vps-ypjh.onrender.com{audio_url}")
-        else:
-            response.say("I don't have a response right now.")
+    response = VoiceResponse()
+    connect = Connect()
+    connect.stream(
+        url=stream_url,
+        track="both_tracks"
+    )
+    response.append(connect)
 
-        # Gather again (loop)
-        gather = response.gather(
-            input="speech",
-            action="/twilio-process",
-            method="POST",
-            timeout=5,
-            speech_timeout="auto"
-        )
-        gather.say("Go ahead, I'm listening.")
-
-        return Response(str(response), mimetype="application/xml")
-
-    except Exception as e:
-        print("❌ Error in /twilio-process:", e)
-        response.say("Something went wrong.")
-        return Response(str(response), mimetype="application/xml")
-
+    return Response(str(response), mimetype="application/xml")
 
 # === Run App ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
