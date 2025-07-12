@@ -1,12 +1,11 @@
 from flask import Flask, request, Response
-from twilio.twiml.voice_response import VoiceResponse, Dial, Connect, Stream
+from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 import re
 import os
 
 app = Flask(__name__)
 
 # === ENV Variables ===
-twilio_number = os.environ.get("TWILIO_NUMBER")  # e.g. +14155551234
 stream_url = os.environ.get("WS_STREAM_URL")     # e.g. wss://yourdomain.com/media
 
 # === Helper: Validate Indian & US Numbers ===
@@ -19,13 +18,13 @@ def sanitize_number(number):
 def health():
     return "✅ Flask app running."
 
-# === Start Call from VICIdial (via Twilio SIP) ===
+# === Entry Point for SIP Call from VICIdial/Softphone ===
 @app.route("/start-call", methods=["POST"])
 def start_call():
     to_number = request.values.get("To", "")
-    print(f"📞 Raw number from Twilio: {to_number}")
+    print(f"📞 SIP INVITE received for: {to_number}")
 
-    # Extract number from SIP URI (e.g., sip:+919876543210@sip.yourdomain.com)
+    # Extract phone number from SIP URI
     if "@" in to_number:
         number = to_number.split("@")[0].replace("sip:", "")
     else:
@@ -35,33 +34,15 @@ def start_call():
     if not number:
         print("❌ Invalid phone number format.")
         response = VoiceResponse()
-        response.say("Invalid number. Goodbye.")
+        response.say("Invalid number.")
         return Response(str(response), mimetype="application/xml")
 
-    print(f"✅ Dialing number: {number}")
+    print(f"✅ Connecting customer directly to AI via WebSocket stream: {stream_url}")
 
-    response = VoiceResponse()
-    dial = Dial(
-        caller_id=twilio_number,
-        answer_on_bridge=True
-    )
-    # When customer answers, Twilio calls /connect-ai to start WebSocket media stream
-    dial.number(number, url="/connect-ai")
-    response.append(dial)
-
-    return Response(str(response), mimetype="application/xml")
-
-# === After Customer Answers: Start Media Stream to AI Agent ===
-@app.route("/connect-ai", methods=["POST"])
-def connect_ai():
-    print("✅ Customer answered. Connecting to AI WebSocket")
-
+    # Build TwiML to start streaming to AI
     response = VoiceResponse()
     connect = Connect()
-    
-    # ✅ Only one <Stream> tag is valid
     connect.stream(url=stream_url)
-
     response.append(connect)
 
     return Response(str(response), mimetype="application/xml")
