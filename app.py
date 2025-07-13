@@ -20,7 +20,6 @@ def health():
     return "✅ Flask app running."
 
 # === Entry Point for VICIdial SIP Call ===
-# === Entry Point for VICIdial SIP Call ===
 @app.route("/start-call", methods=["POST"])
 def start_call():
     to_number = request.values.get("To", "")
