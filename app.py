@@ -1,77 +1,64 @@
-from flask import Flask, request, Response
-from twilio.twiml.voice_response import VoiceResponse, Dial, Connect, Stream
-import re
+from flask import Flask, request, Response, jsonify
+from twilio.rest import Client
+from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 import os
+import re
 
 app = Flask(__name__)
 
-# === ENV Variables ===
-twilio_caller_id = os.environ.get("TWILIO_CALLER_ID")  # e.g. +14155552671
-stream_url = os.environ.get("WS_STREAM_URL")  # e.g. wss://yourdomain.com/ws
+# ✅ Environment variables
+twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+twilio_token = os.environ.get("TWILIO_AUTH_TOKEN")
+twilio_number = os.environ.get("TWILIO_CALLER_ID")  # Your Twilio number, e.g., +17167140779
+stream_url = os.environ.get("WS_STREAM_URL")        # WebSocket URL to your media.py, e.g., wss://your-server.com/ws
 
-# === Helper: Validate Indian & US Numbers ===
+client = Client(twilio_sid, twilio_token)
+
+# ✅ Validates US and India numbers
 def sanitize_number(number):
     match = re.match(r"^\+(1|91)\d{10}$", number)
     return number if match else None
 
-# === Health Check ===
+# ✅ Health check
 @app.route("/")
 def health():
-    return "✅ Flask app running."
+    return "✅ Flask AI Voice Server is running."
 
-# === Entry Point for VICIdial SIP Call ===
+# ✅ Initiates Twilio outbound call from VICIdial
 @app.route("/start-call", methods=["POST"])
 def start_call():
-    to_number = request.values.get("To", "")
-    print(f"📞 SIP INVITE received for: {to_number}")
+    to_number = request.values.get("To", "").strip()
+    number = sanitize_number(to_number)
 
-    if "@" in to_number:
-        number = to_number.split("@")[0].replace("sip:", "")
-    else:
-        number = to_number
-
-    number = sanitize_number(number)
     if not number:
-        print("❌ Invalid phone number format.")
-        response = VoiceResponse()
-        response.say("Invalid number.")
-        return Response(str(response), mimetype="application/xml")
+        return jsonify({"error": "Invalid number"}), 400
 
-    twilio_caller_id = os.environ.get("TWILIO_CALLER_ID")  # Must be verified/purchased Twilio number
-    if not twilio_caller_id:
-        print("❌ TWILIO_CALLER_ID not set.")
-        response = VoiceResponse()
-        response.say("Server misconfigured. Caller ID missing.")
-        return Response(str(response), mimetype="application/xml")
+    try:
+        print(f"📞 Calling: {number}")
+        call = client.calls.create(
+            to=number,
+            from_=twilio_number,
+            url="https://render-vps-ypjh.onrender.com/start-ai",  # <-- Replace with your real public HTTPS URL
+            method="POST"
+        )
+        print(f"✅ Call SID: {call.sid}")
+        return jsonify({"status": "initiated", "sid": call.sid})
+    except Exception as e:
+        print(f"❌ Twilio error: {e}")
+        return jsonify({"error": str(e)}), 500
 
-    response = VoiceResponse()
-    dial = Dial(action="/start-ai", caller_id=twilio_caller_id)
-    dial.number(number)
-    response.append(dial)
-
-    print(f"📲 Dialing {number} with Caller ID {twilio_caller_id}")
-    return Response(str(response), mimetype="application/xml")
-
-
-    # Build TwiML to dial customer first
-    response = VoiceResponse()
-    dial = Dial(action="/start-ai")  # Twilio will hit this after customer answers
-    dial.number(number)
-    response.append(dial)
-
-    print(f"📲 Dialing customer: {number}, will start AI after pickup")
-    return Response(str(response), mimetype="application/xml")
-
-# === When Customer Picks Up ===
+# ✅ Called after customer picks up
 @app.route("/start-ai", methods=["POST"])
 def start_ai():
-    print("✅ Customer answered, starting AI stream...")
+    print("✅ Customer answered, connecting AI stream...")
+
     response = VoiceResponse()
     connect = Connect()
     connect.stream(url=stream_url)
     response.append(connect)
+
     return Response(str(response), mimetype="application/xml")
 
-# === Run Flask App ===
+# ✅ Run server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
