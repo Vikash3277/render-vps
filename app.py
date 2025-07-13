@@ -1,12 +1,12 @@
 from flask import Flask, request, Response
-from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
+from twilio.twiml.voice_response import VoiceResponse, Dial, Connect, Stream
 import re
 import os
 
 app = Flask(__name__)
 
 # === ENV Variables ===
-stream_url = os.environ.get("WS_STREAM_URL")     # e.g. wss://yourdomain.com/media
+stream_url = os.environ.get("WS_STREAM_URL")  # e.g. wss://yourdomain.com/ws
 
 # === Helper: Validate Indian & US Numbers ===
 def sanitize_number(number):
@@ -18,13 +18,13 @@ def sanitize_number(number):
 def health():
     return "✅ Flask app running."
 
-# === Entry Point for SIP Call from VICIdial/Softphone ===
+# === Entry Point for VICIdial SIP Call ===
 @app.route("/start-call", methods=["POST"])
 def start_call():
     to_number = request.values.get("To", "")
     print(f"📞 SIP INVITE received for: {to_number}")
 
-    # Extract phone number from SIP URI
+    # Extract number from SIP URI if needed
     if "@" in to_number:
         number = to_number.split("@")[0].replace("sip:", "")
     else:
@@ -37,14 +37,23 @@ def start_call():
         response.say("Invalid number.")
         return Response(str(response), mimetype="application/xml")
 
-    print(f"✅ Connecting customer directly to AI via WebSocket stream: {stream_url}")
+    # Build TwiML to dial customer first
+    response = VoiceResponse()
+    dial = Dial(action="/start-ai")  # Twilio will hit this after customer answers
+    dial.number(number)
+    response.append(dial)
 
-    # Build TwiML to start streaming to AI
+    print(f"📲 Dialing customer: {number}, will start AI after pickup")
+    return Response(str(response), mimetype="application/xml")
+
+# === When Customer Picks Up ===
+@app.route("/start-ai", methods=["POST"])
+def start_ai():
+    print("✅ Customer answered, starting AI stream...")
     response = VoiceResponse()
     connect = Connect()
     connect.stream(url=stream_url)
     response.append(connect)
-
     return Response(str(response), mimetype="application/xml")
 
 # === Run Flask App ===
