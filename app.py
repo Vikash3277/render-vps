@@ -16,7 +16,7 @@ client = Client(twilio_sid, twilio_token)
 
 # ✅ Validates US and India numbers
 def sanitize_number(number):
-    match = re.match(r"^\+(1|91)\d{10}$", number)
+    match = re.match(r"^\+\d{10,15}$", number)
     return number if match else None
 
 # ✅ Health check
